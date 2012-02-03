@@ -23,8 +23,12 @@ import android.animation.ObjectAnimator;
 import android.animation.Animator;
 import android.animation.AnimatorSet;
 import android.app.Activity;
+import android.os.BatteryManager;
 import android.os.Handler;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewGroup;
@@ -35,7 +39,8 @@ import java.lang.Runnable;
 import android.util.Log;
 
 public class Screensaver extends Activity {
-    View mContainer;
+    static final boolean DEBUG = false;
+    static final String TAG = "DeskClock/Screensaver";
 
     static int CLOCK_COLOR = 0xFF66AAFF;
 
@@ -44,6 +49,8 @@ public class Screensaver extends Activity {
     static final long FADE_TIME = 1000;
 
     static final boolean SLIDE = false;
+
+    private View mContentView, mSaverView;
 
     private static TimeInterpolator mSlowStartWithBrakes =
         new TimeInterpolator() {
@@ -54,47 +61,70 @@ public class Screensaver extends Activity {
 
     private Handler mHandler = new Handler();
 
-    private Runnable mMoveSaverRunnable = new Runnable() {
+    private boolean mPlugged = false;
+    private final BroadcastReceiver mPowerIntentReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final String action = intent.getAction();
+            if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
+                // Only keep the screen on if we're plugged in.
+                boolean plugged = (0 != intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0));
+                if (plugged != mPlugged) {
+                    if (DEBUG) Log.v(TAG, plugged ? "plugged in" : "unplugged");
+                    mPlugged = plugged;
+                    if (mPlugged) {
+                        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    } else {
+                        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    }
+                }
+            }
+        }
+    };
+
+    private final Runnable mMoveSaverRunnable = new Runnable() {
         @Override
         public void run() {
             long delay = MOVE_DELAY;
 
-            View parent = (View)mContainer.getParent();
-            //Log.d("DeskClock/Screensaver", String.format("parent=(%d x %d)",
-//                        parent.getWidth(), parent.getHeight()));
-            final float xrange = parent.getWidth() - mContainer.getWidth();
-            final float yrange = parent.getHeight() - mContainer.getHeight();
+//            Log.d("DeskClock/Screensaver",
+//                    String.format("mContentView=(%d x %d) container=(%d x %d)",
+//                        mContentView.getWidth(), mContentView.getHeight(),
+//                        mSaverView.getWidth(), mSaverView.getHeight()
+//                        ));
+            final float xrange = mContentView.getWidth() - mSaverView.getWidth();
+            final float yrange = mContentView.getHeight() - mSaverView.getHeight();
 
-            if (xrange == 0) {
+            if (xrange == 0 && yrange == 0) {
                 delay = 500; // back in a split second
             } else {
                 final int nextx = (int) (Math.random() * xrange);
                 final int nexty = (int) (Math.random() * yrange);
 
-                if (mContainer.getAlpha() == 0f) {
+                if (mSaverView.getAlpha() == 0f) {
                     // jump right there
-                    mContainer.setX(nextx);
-                    mContainer.setY(nexty);
-                    ObjectAnimator.ofFloat(mContainer, "alpha", 0f, 1f)
+                    mSaverView.setX(nextx);
+                    mSaverView.setY(nexty);
+                    ObjectAnimator.ofFloat(mSaverView, "alpha", 0f, 1f)
                         .setDuration(FADE_TIME)
                         .start();
                 } else {
                     AnimatorSet s = new AnimatorSet();
-                    Animator xMove   = ObjectAnimator.ofFloat(mContainer,
-                                         "x", mContainer.getX(), nextx);
-                    Animator yMove   = ObjectAnimator.ofFloat(mContainer,
-                                         "y", mContainer.getY(), nexty);
+                    Animator xMove   = ObjectAnimator.ofFloat(mSaverView,
+                                         "x", mSaverView.getX(), nextx);
+                    Animator yMove   = ObjectAnimator.ofFloat(mSaverView,
+                                         "y", mSaverView.getY(), nexty);
 
-                    Animator xShrink = ObjectAnimator.ofFloat(mContainer, "scaleX", 1f, 0.75f);
-                    Animator xGrow   = ObjectAnimator.ofFloat(mContainer, "scaleX", 0.75f, 1f);
+                    Animator xShrink = ObjectAnimator.ofFloat(mSaverView, "scaleX", 1f, 0.85f);
+                    Animator xGrow   = ObjectAnimator.ofFloat(mSaverView, "scaleX", 0.85f, 1f);
 
-                    Animator yShrink = ObjectAnimator.ofFloat(mContainer, "scaleY", 1f, 0.75f);
-                    Animator yGrow   = ObjectAnimator.ofFloat(mContainer, "scaleY", 0.75f, 1f);
+                    Animator yShrink = ObjectAnimator.ofFloat(mSaverView, "scaleY", 1f, 0.85f);
+                    Animator yGrow   = ObjectAnimator.ofFloat(mSaverView, "scaleY", 0.85f, 1f);
                     AnimatorSet shrink = new AnimatorSet(); shrink.play(xShrink).with(yShrink);
                     AnimatorSet grow = new AnimatorSet(); grow.play(xGrow).with(yGrow);
 
-                    Animator fadeout = ObjectAnimator.ofFloat(mContainer, "alpha", 1f, 0f);
-                    Animator fadein = ObjectAnimator.ofFloat(mContainer, "alpha", 0f, 1f);
+                    Animator fadeout = ObjectAnimator.ofFloat(mSaverView, "alpha", 1f, 0f);
+                    Animator fadein = ObjectAnimator.ofFloat(mSaverView, "alpha", 0f, 1f);
 
 
                     if (SLIDE) {
@@ -128,7 +158,8 @@ public class Screensaver extends Activity {
                         + (MOVE_DELAY - adjust) // minute aligned
                         - (SLIDE ? 0 : FADE_TIME) // start moving before the fade
                         ;
-                //Log.d("DeskClock/Screensaver", "will move again in " + delay + " now=" + now + " adjusted by " + adjust);
+                if (DEBUG) Log.d(TAG, 
+                        "will move again in " + delay + " now=" + now + " adjusted by " + adjust);
             }
 
             mHandler.removeCallbacks(this);
@@ -141,10 +172,9 @@ public class Screensaver extends Activity {
         super.onStart();
         CLOCK_COLOR = getResources().getColor(R.color.screen_saver_color);
         setContentView(R.layout.desk_clock_saver);
-        mContainer = findViewById(R.id.saver_view);
-        mContainer.setAlpha(0);
-        mContainer.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
-        mContainer.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        mSaverView = findViewById(R.id.saver_view);
+        mContentView = (View) mSaverView.getParent();
+        mSaverView.setAlpha(0);
 
         AndroidClockTextView timeDisplay = (AndroidClockTextView) findViewById(R.id.timeDisplay);
         if (timeDisplay != null) {
@@ -153,24 +183,36 @@ public class Screensaver extends Activity {
             if (amPm != null) amPm.setTextColor(CLOCK_COLOR);
         }
 
+        final IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_BATTERY_CHANGED);
+        registerReceiver(mPowerIntentReceiver, filter);
+    }
+
+    @Override
+    public void onAttachedToWindow() {
         getWindow().addFlags(
-                  WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                | WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
-                | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                );
+                WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON
+              | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+              );
+        mSaverView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
+    }
+
+
+    @Override
+    public void onStop() {
+        unregisterReceiver(mPowerIntentReceiver);
+        super.onStop();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-
-        mMoveSaverRunnable.run();
+        mHandler.post(mMoveSaverRunnable);
     }
 
     @Override
     public void onPause() {
         super.onPause();
-
         mHandler.removeCallbacks(mMoveSaverRunnable);
     }
 

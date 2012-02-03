@@ -138,38 +138,9 @@ public class DeskClock extends Activity {
                     finish();
                 }
                 mLaunchedFromDock = false;
-            } else if (Intent.ACTION_DOCK_EVENT.equals(action)) {
-                if (DEBUG) Log.d(LOG_TAG, "dock event extra "
-                        + intent.getExtras().getInt(Intent.EXTRA_DOCK_STATE));
-                if (mLaunchedFromDock && intent.getExtras().getInt(Intent.EXTRA_DOCK_STATE,
-                        Intent.EXTRA_DOCK_STATE_UNDOCKED) == Intent.EXTRA_DOCK_STATE_UNDOCKED) {
-                    finish();
-                    mLaunchedFromDock = false;
-                }
             }
         }
     };
-
-    public static class DeskClockReceiver extends BroadcastReceiver {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (Intent.ACTION_DOCK_EVENT.equals(intent.getAction())) {
-                Bundle extras = intent.getExtras();
-                int state = extras
-                        .getInt(Intent.EXTRA_DOCK_STATE, Intent.EXTRA_DOCK_STATE_UNDOCKED);
-                if (state == Intent.EXTRA_DOCK_STATE_DESK
-                        || state == Intent.EXTRA_DOCK_STATE_LE_DESK
-                        || state == Intent.EXTRA_DOCK_STATE_HE_DESK) {
-                    Intent clockIntent = new Intent();
-                    clockIntent.setClass(context, DeskClock.class);
-                    clockIntent.addCategory(Intent.CATEGORY_DESK_DOCK);
-                    clockIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    context.startActivity(clockIntent);
-                }
-            }
-        }
-
-    }
 
     private final Handler mHandy = new Handler() {
         @Override
@@ -422,7 +393,6 @@ public class DeskClock extends Activity {
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_DATE_CHANGED);
         filter.addAction(Intent.ACTION_BATTERY_CHANGED);
-        filter.addAction(Intent.ACTION_DOCK_EVENT);
         filter.addAction(UiModeManager.ACTION_EXIT_DESK_MODE);
         filter.addAction(ACTION_MIDNIGHT);
         registerReceiver(mIntentReceiver, filter);
@@ -515,6 +485,8 @@ public class DeskClock extends Activity {
         final View.OnClickListener alarmClickListener = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                mDimmed = false;
+                doDim(true);
                 startActivity(new Intent(DeskClock.this, AlarmClock.class));
             }
         };
